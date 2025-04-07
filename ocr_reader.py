@@ -43,8 +43,13 @@ def process_image_ocr(image):
     # Process OCR results
     processed_results = []
     for result in results:
-        # Scale the coordinates back to original image size
-        boxes = [[int(x * resize_ratio), int(y * resize_ratio)] for x, y in result[0]]
+        # Convert coordinates to the correct format and scale them back to original size
+        boxes = []
+        for point in result[0]:
+            x = int(point[0] * resize_ratio)
+            y = int(point[1] * resize_ratio)
+            boxes.append([x, y])
+            
         # Convert confidence to float
         confident = float(result[2])
         processed_results.append({

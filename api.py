@@ -60,12 +60,8 @@ async def read_text(request: Request):
                 content={"error": "No text detected in the image"}
             )
         
-        response_data = {
-            "status": "success",
-            "results": results
-        }
-        
-        return response_data
+        # Return results directly without the status wrapper
+        return results
         
     except Exception as e:
         logger.error(f"Error processing image: {str(e)}")
