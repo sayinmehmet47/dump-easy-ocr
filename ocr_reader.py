@@ -1,70 +1,100 @@
 import easyocr
 import numpy as np
 import cv2
+from typing import List, Dict, Any, Optional
 
+class OCRReader:
+    def __init__(
+        self,
+        languages: List[str] = ['de', 'fr', 'it'],
+        gpu: bool = True,
+        model_storage_directory: Optional[str] = None,
+        download_enabled: bool = True,
+        detector_threshold: float = 0.5,
+        text_threshold: float = 0.7,
+        paragraph: bool = False
+    ):
+        """
+        Initialize the OCR reader with configurable parameters.
+        
+        Args:
+            languages: List of language codes to detect
+            gpu: Whether to use GPU
+            model_storage_directory: Directory to store the models
+            download_enabled: Whether to allow downloading models
+            detector_threshold: Threshold for the text detector
+            text_threshold: Threshold for text recognition
+            paragraph: Whether to group text into paragraphs
+        """
+        self.reader = easyocr.Reader(
+            lang_list=languages,
+            gpu=gpu,
+            model_storage_directory=model_storage_directory,
+            download_enabled=download_enabled,
+            detector_threshold=detector_threshold,
+            text_threshold=text_threshold,
+            paragraph=paragraph
+        )
 
-reader = easyocr.Reader(['de', 'fr', 'it'], gpu=True, download_enabled=True)
+    def resize_image(self, image: np.ndarray, max_size: int = 1000) -> np.ndarray:
+        """
+        Resize image while maintaining aspect ratio.
+        """
+        height, width = image.shape[:2]
+        
+        if height <= max_size and width <= max_size:
+            return image
+        
+        ratio = max_size / float(max(height, width))
+        new_width = int(width * ratio)
+        new_height = int(height * ratio)
+        
+        return cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
 
-def resize_image(image, max_size=1000):
-    """
-    Resize image while maintaining aspect ratio so that the largest dimension
-    does not exceed max_size.
-    """
-    height, width = image.shape[:2]
-    
-    # If image is already smaller than max_size, return original
-    if height <= max_size and width <= max_size:
-        return image
-    
-    # Calculate the ratio
-    ratio = max_size / float(max(height, width))
-    new_width = int(width * ratio)
-    new_height = int(height * ratio)
-    
-    # Resize the image
-    resized_image = cv2.resize(image, (new_width, new_height), interpolation=cv2.INTER_AREA)
-    return resized_image
-
-def process_image_ocr(image):
-    """
-    Process an image through OCR and return the results.
-    Args:
-        image: numpy array of the image
-    Returns:
-        dict: OCR results in the specified format with image size and detected text
-    """
-    # Get original dimensions
-    original_height, original_width = image.shape[:2]
-    
-    # Resize image for faster processing
-    resized_image = resize_image(image)
-    resize_ratio = original_width / resized_image.shape[1]  # Calculate resize ratio
-    
-    # Use the global reader instance instead of creating a new one
-    results = reader.readtext(resized_image)
-    
-    # Process OCR results
-    processed_results = []
-    for result in results:
-        # Convert coordinates to the correct format and scale them back to original size
-        boxes = []
-        for point in result[0]:
-            x = int(point[0] * resize_ratio)
-            y = int(point[1] * resize_ratio)
-            boxes.append([x, y])
+    def process_image_ocr(
+        self,
+        image: np.ndarray,
+        min_confidence: float = 0.0,
+        resize_max: int = 1000
+    ) -> Dict[str, Any]:
+        """
+        Process an image through OCR and return the results.
+        
+        Args:
+            image: numpy array of the image
+            min_confidence: Minimum confidence threshold for results
+            resize_max: Maximum dimension for image resizing
+        """
+        original_height, original_width = image.shape[:2]
+        resized_image = self.resize_image(image, max_size=resize_max)
+        resize_ratio = original_width / resized_image.shape[1]
+        
+        results = self.reader.readtext(resized_image)
+        
+        processed_results = []
+        for result in results:
+            confident = float(result[2])
             
-        # Convert confidence to float
-        confident = float(result[2])
-        processed_results.append({
-            'text': result[1],
-            'boxes': boxes,
-            'confident': confident
-        })
+            # Skip results below confidence threshold
+            if confident < min_confidence:
+                continue
+                
+            boxes = []
+            for point in result[0]:
+                x = int(point[0] * resize_ratio)
+                y = int(point[1] * resize_ratio)
+                boxes.append([x, y])
+                
+            processed_results.append({
+                'text': result[1],
+                'boxes': boxes,
+                'confident': confident
+            })
     
-    return {
-        'results': processed_results,
-        'imageSize': {
-            'width': original_width,
-            'height': original_height
+        return {
+            'results': processed_results,
+            'imageSize': {
+                'width': original_width,
+                'height': original_height
+            }
         }
-    }
