@@ -4,11 +4,14 @@ from fastapi.middleware.cors import CORSMiddleware
 import cv2
 import numpy as np
 from ocr_reader import process_image_ocr
-from utils import (
-    SUPPORTED_LANGUAGES,
-    logger
-)
+import logging
 
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(
     title="Health Insurance Card OCR API",
@@ -29,7 +32,6 @@ app.add_middleware(
 async def root():
     return {
         "message": "Health Insurance Card OCR API",
-        "supported_languages": SUPPORTED_LANGUAGES
     }
 
 @app.post("/readtext")
@@ -74,4 +76,4 @@ async def read_text(request: Request):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=3755, log_level="debug") 
+    uvicorn.run(app, host="0.0.0.0", port=3755, log_level="debug")
