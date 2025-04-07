@@ -20,7 +20,6 @@ class OCRConfig(BaseModel):
     gpu: bool = Field(default=True, description="Whether to use GPU for processing")
     model_storage_directory: Optional[str] = Field(default=None, description="Directory to store models")
     download_enabled: bool = Field(default=True, description="Whether to allow downloading models")
-    detector_threshold: float = Field(default=0.5, description="Threshold for text detection", ge=0, le=1)
     text_threshold: float = Field(default=0.7, description="Threshold for text recognition", ge=0, le=1)
     paragraph: bool = Field(default=False, description="Whether to group text into paragraphs")
     min_confidence: float = Field(default=0.0, description="Minimum confidence threshold for results", ge=0, le=1)
@@ -35,10 +34,10 @@ app = FastAPI(
 # Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allows all origins
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allows all methods
-    allow_headers=["*"],  # Allows all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Store OCR reader instance
@@ -62,7 +61,6 @@ async def configure_ocr(config: OCRConfig):
             gpu=config.gpu,
             model_storage_directory=config.model_storage_directory,
             download_enabled=config.download_enabled,
-            detector_threshold=config.detector_threshold,
             text_threshold=config.text_threshold,
             paragraph=config.paragraph
         )
@@ -72,23 +70,22 @@ async def configure_ocr(config: OCRConfig):
         raise HTTPException(status_code=500, detail=f"Error configuring OCR: {str(e)}")
 
 @app.post("/readtext")
-async def read_text(request: Request, config: Optional[OCRConfig] = None):
+async def read_text(request: Request):
     """
     Process image with OCR using provided configuration.
-    If no configuration is provided, uses default or last configured settings.
+    Accepts raw image data in the request body.
     """
     try:
         global ocr_reader
         
-        # Initialize OCR reader if not exists or new config provided
-        if ocr_reader is None or config is not None:
-            config = config or OCRConfig()
+        # Initialize OCR reader if not exists
+        if ocr_reader is None:
+            config = OCRConfig()  # Use default configuration
             ocr_reader = OCRReader(
                 languages=config.languages,
                 gpu=config.gpu,
                 model_storage_directory=config.model_storage_directory,
                 download_enabled=config.download_enabled,
-                detector_threshold=config.detector_threshold,
                 text_threshold=config.text_threshold,
                 paragraph=config.paragraph
             )
@@ -105,14 +102,11 @@ async def read_text(request: Request, config: Optional[OCRConfig] = None):
         if image is None:
             raise HTTPException(status_code=400, detail="Invalid image data")
         
-        # Process image with OCR
-        min_confidence = config.min_confidence if config else 0.0
-        resize_max = config.resize_max if config else 1000
-        
+        # Process image with OCR using default configuration values
         results = ocr_reader.process_image_ocr(
             image,
-            min_confidence=min_confidence,
-            resize_max=resize_max
+            min_confidence=0.0,
+            resize_max=1000
         )
         
         if not results['results']:

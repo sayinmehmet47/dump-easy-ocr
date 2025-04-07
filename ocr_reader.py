@@ -10,7 +10,6 @@ class OCRReader:
         gpu: bool = True,
         model_storage_directory: Optional[str] = None,
         download_enabled: bool = True,
-        detector_threshold: float = 0.5,
         text_threshold: float = 0.7,
         paragraph: bool = False
     ):
@@ -20,9 +19,8 @@ class OCRReader:
         Args:
             languages: List of language codes to detect
             gpu: Whether to use GPU
-            model_storage_directory: Directory to store the models
+            model_storage_directory: Directory to store models
             download_enabled: Whether to allow downloading models
-            detector_threshold: Threshold for the text detector
             text_threshold: Threshold for text recognition
             paragraph: Whether to group text into paragraphs
         """
@@ -31,10 +29,10 @@ class OCRReader:
             gpu=gpu,
             model_storage_directory=model_storage_directory,
             download_enabled=download_enabled,
-            detector_threshold=detector_threshold,
-            text_threshold=text_threshold,
-            paragraph=paragraph
+            recog_network='standard'
         )
+        self.text_threshold = text_threshold
+        self.paragraph = paragraph
 
     def resize_image(self, image: np.ndarray, max_size: int = 1000) -> np.ndarray:
         """
@@ -69,7 +67,12 @@ class OCRReader:
         resized_image = self.resize_image(image, max_size=resize_max)
         resize_ratio = original_width / resized_image.shape[1]
         
-        results = self.reader.readtext(resized_image)
+        # Use paragraph mode if configured
+        results = self.reader.readtext(
+            resized_image,
+            paragraph=self.paragraph,
+            text_threshold=self.text_threshold
+        )
         
         processed_results = []
         for result in results:
