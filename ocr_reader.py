@@ -2,6 +2,9 @@ import easyocr
 import numpy as np
 import cv2
 
+
+reader = easyocr.Reader(['de', 'fr', 'it'], gpu=True, download_enabled=True)
+
 def resize_image(image, max_size=1000):
     """
     Resize image while maintaining aspect ratio so that the largest dimension
@@ -37,7 +40,7 @@ def process_image_ocr(image):
     resized_image = resize_image(image)
     resize_ratio = original_width / resized_image.shape[1]  # Calculate resize ratio
     
-    reader = easyocr.Reader(['de', 'fr', 'it'], gpu=True, download_enabled=True)
+    # Use the global reader instance instead of creating a new one
     results = reader.readtext(resized_image)
     
     # Process OCR results
