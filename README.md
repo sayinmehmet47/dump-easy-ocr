@@ -5,11 +5,12 @@ A FastAPI-based OCR service that extracts text from health insurance cards in Ge
 ## Features
 
 - Multi-language support (German, French, Italian)
-- Configurable OCR parameters
+- Configurable OCR parameters via query parameters
 - GPU acceleration support
 - REST API with Swagger documentation
 - Adjustable confidence thresholds
 - Image preprocessing capabilities
+- Efficient caching of OCR instances for better performance
 
 ## Prerequisites
 
@@ -35,7 +36,7 @@ source venv/bin/activate  # On Windows: .\venv\Scripts\activate
 3. Install the required packages:
 
 ```bash
-pip install fastapi uvicorn easyocr opencv-python numpy pydantic python-multipart
+pip install fastapi uvicorn easyocr opencv-python numpy
 ```
 
 ## Running the API
@@ -53,56 +54,56 @@ The server will start at `http://localhost:3755` with the following endpoints:
 
 ## API Usage
 
-### 1. Configure OCR Settings
+### Process Images
 
-You can configure the OCR settings using the `/configure` endpoint:
+The API provides a single endpoint `/readtext` that accepts both the image and configuration parameters. You can use it in different ways:
 
-```bash
-curl -X POST "http://localhost:3755/configure" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "languages": ["de", "fr", "it"],
-    "gpu": true,
-    "detector_threshold": 0.5,
-    "text_threshold": 0.7,
-    "min_confidence": 0.3
-  }'
-```
-
-### 2. Process Images
-
-#### Option 1: Using default configuration
+#### 1. Basic Usage (Default Configuration)
 
 ```bash
 curl -X POST "http://localhost:3755/readtext" \
-  --data-binary @path/to/your/image.jpg
+  -H "Content-Type: image/png" \
+  --data-binary "@path/to/your/image.png"
 ```
 
-#### Option 2: With custom configuration for this request
+#### 2. Custom Language Configuration
 
 ```bash
-curl -X POST "http://localhost:3755/readtext" \
-  -F "image=@path/to/your/image.jpg" \
-  -F 'config={
-    "languages": ["de"],
-    "min_confidence": 0.6,
-    "gpu": false
-  }'
+curl -X POST "http://localhost:3755/readtext?languages=de,fr" \
+  -H "Content-Type: image/png" \
+  --data-binary "@path/to/your/image.png"
+```
+
+#### 3. Advanced Configuration
+
+```bash
+curl -X POST "http://localhost:3755/readtext?languages=de,fr&text_threshold=0.8&min_confidence=0.6&resize_max=800" \
+  -H "Content-Type: image/png" \
+  --data-binary "@path/to/your/image.png"
+```
+
+#### 4. Disable GPU (CPU-only mode)
+
+```bash
+curl -X POST "http://localhost:3755/readtext?gpu=false" \
+  -H "Content-Type: image/png" \
+  --data-binary "@path/to/your/image.png"
 ```
 
 ## Configuration Options
 
+All configuration options are passed as query parameters:
+
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `languages` | List[str] | `["de", "fr", "it"]` | Languages to detect |
-| `gpu` | bool | `true` | Whether to use GPU acceleration |
-| `model_storage_directory` | str | `null` | Custom directory to store models |
-| `download_enabled` | bool | `true` | Allow downloading models |
-| `detector_threshold` | float | `0.5` | Text detection confidence threshold (0-1) |
+| `languages` | string | `"de,fr,it"` | Comma-separated list of languages to detect |
+| `gpu` | boolean | `true` | Whether to use GPU acceleration |
+| `model_storage_directory` | string | `null` | Custom directory to store models |
+| `download_enabled` | boolean | `true` | Allow downloading models |
 | `text_threshold` | float | `0.7` | Text recognition confidence threshold (0-1) |
-| `paragraph` | bool | `false` | Group text into paragraphs |
+| `paragraph` | boolean | `false` | Group text into paragraphs |
 | `min_confidence` | float | `0.0` | Minimum confidence for returned results (0-1) |
-| `resize_max` | int | `1000` | Maximum image dimension for processing |
+| `resize_max` | integer | `1000` | Maximum image dimension for processing |
 
 ## API Response Format
 
@@ -140,10 +141,14 @@ The API returns appropriate HTTP status codes:
 
 ## Performance Tips
 
-1. Use GPU acceleration when possible
-2. Adjust `resize_max` for better performance on large images
-3. Set appropriate confidence thresholds to filter out low-quality results
-4. Use specific languages instead of all languages when possible
+1. The API implements caching of OCR instances:
+   - First request with a specific configuration will take longer (~4 seconds)
+   - Subsequent requests with the same configuration will be faster (~1 second)
+   - Changing configuration parameters will create a new cached instance
+2. Use GPU acceleration when possible
+3. Adjust `resize_max` for better performance on large images
+4. Set appropriate confidence thresholds to filter out low-quality results
+5. Use specific languages instead of all languages when possible
 
 ## Development
 

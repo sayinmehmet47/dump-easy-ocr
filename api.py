@@ -1,11 +1,10 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import List, Optional, Dict
 import cv2
 import numpy as np
-from ocr_reader import OCRReader
+from ocr_reader import OCRReader, OCRConfig
 import logging
 
 # Configure logging
@@ -14,16 +13,6 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
-
-class OCRConfig(BaseModel):
-    languages: List[str] = Field(default=['de', 'fr', 'it'], description="List of languages to detect")
-    gpu: bool = Field(default=True, description="Whether to use GPU for processing")
-    model_storage_directory: Optional[str] = Field(default=None, description="Directory to store models")
-    download_enabled: bool = Field(default=True, description="Whether to allow downloading models")
-    text_threshold: float = Field(default=0.7, description="Threshold for text recognition", ge=0, le=1)
-    paragraph: bool = Field(default=False, description="Whether to group text into paragraphs")
-    min_confidence: float = Field(default=0.0, description="Minimum confidence threshold for results", ge=0, le=1)
-    resize_max: int = Field(default=1000, description="Maximum dimension for image resizing", gt=0)
 
 app = FastAPI(
     title="Health Insurance Card OCR API",
@@ -40,8 +29,40 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Store OCR reader instance
-ocr_reader = None
+# Cache for OCRReader instances
+reader_cache: Dict[str, OCRReader] = {}
+
+def get_cache_key(config_params: dict) -> str:
+    """Generate a cache key from configuration parameters"""
+    # Only include parameters that affect reader initialization
+    key_params = {
+        'languages': config_params['languages'],
+        'gpu': config_params['gpu'],
+        'model_storage_directory': config_params['model_storage_directory'],
+        'download_enabled': config_params['download_enabled'],
+        'text_threshold': config_params['text_threshold'],
+        'paragraph': config_params['paragraph']
+    }
+    return str(sorted(key_params.items()))
+
+def get_or_create_reader(config_params: dict) -> OCRReader:
+    """Get an existing OCRReader instance or create a new one if needed"""
+    cache_key = get_cache_key(config_params)
+    
+    if cache_key not in reader_cache:
+        logger.debug("Creating new OCRReader instance")
+        reader_cache[cache_key] = OCRReader(
+            languages=[lang.strip() for lang in config_params['languages'].split(",")],
+            gpu=config_params['gpu'],
+            model_storage_directory=config_params['model_storage_directory'],
+            download_enabled=config_params['download_enabled'],
+            text_threshold=config_params['text_threshold'],
+            paragraph=config_params['paragraph']
+        )
+    else:
+        logger.debug("Using cached OCRReader instance")
+    
+    return reader_cache[cache_key]
 
 @app.get("/")
 async def root():
@@ -51,44 +72,38 @@ async def root():
         "redoc": "/redoc"
     }
 
-@app.post("/configure")
-async def configure_ocr(config: OCRConfig):
-    """Configure the OCR reader with new parameters"""
-    global ocr_reader
-    try:
-        ocr_reader = OCRReader(
-            languages=config.languages,
-            gpu=config.gpu,
-            model_storage_directory=config.model_storage_directory,
-            download_enabled=config.download_enabled,
-            text_threshold=config.text_threshold,
-            paragraph=config.paragraph
-        )
-        return {"message": "OCR configuration updated successfully"}
-    except Exception as e:
-        logger.error(f"Error configuring OCR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error configuring OCR: {str(e)}")
-
 @app.post("/readtext")
-async def read_text(request: Request):
+async def read_text(
+    request: Request,
+    languages: str = Query(default=",".join(OCRConfig.DEFAULT_LANGUAGES), description="Comma-separated list of languages to detect"),
+    gpu: bool = Query(default=OCRConfig.DEFAULT_GPU, description="Whether to use GPU for processing"),
+    model_storage_directory: Optional[str] = Query(default=None, description="Directory to store models"),
+    download_enabled: bool = Query(default=OCRConfig.DEFAULT_DOWNLOAD_ENABLED, description="Whether to allow downloading models"),
+    text_threshold: float = Query(default=OCRConfig.DEFAULT_TEXT_THRESHOLD, ge=0, le=1, description="Threshold for text recognition"),
+    paragraph: bool = Query(default=OCRConfig.DEFAULT_PARAGRAPH, description="Whether to group text into paragraphs"),
+    min_confidence: float = Query(default=OCRConfig.DEFAULT_MIN_CONFIDENCE, ge=0, le=1, description="Minimum confidence threshold for results"),
+    resize_max: int = Query(default=OCRConfig.DEFAULT_RESIZE_MAX, gt=0, description="Maximum dimension for image resizing")
+):
     """
     Process image with OCR using provided configuration.
-    Accepts raw image data in the request body.
+    Accepts raw image data in the request body and configuration via query parameters.
+    Example: POST /readtext?languages=de,fr&text_threshold=0.8
     """
     try:
-        global ocr_reader
+        # Get configuration parameters
+        config_params = {
+            'languages': languages,
+            'gpu': gpu,
+            'model_storage_directory': model_storage_directory,
+            'download_enabled': download_enabled,
+            'text_threshold': text_threshold,
+            'paragraph': paragraph,
+            'min_confidence': min_confidence,
+            'resize_max': resize_max
+        }
         
-        # Initialize OCR reader if not exists
-        if ocr_reader is None:
-            config = OCRConfig()  # Use default configuration
-            ocr_reader = OCRReader(
-                languages=config.languages,
-                gpu=config.gpu,
-                model_storage_directory=config.model_storage_directory,
-                download_enabled=config.download_enabled,
-                text_threshold=config.text_threshold,
-                paragraph=config.paragraph
-            )
+        # Get or create OCR reader instance
+        ocr_reader = get_or_create_reader(config_params)
         
         # Read the raw image data
         contents = await request.body()
@@ -102,11 +117,11 @@ async def read_text(request: Request):
         if image is None:
             raise HTTPException(status_code=400, detail="Invalid image data")
         
-        # Process image with OCR using default configuration values
+        # Process image with OCR using configuration values
         results = ocr_reader.process_image_ocr(
             image,
-            min_confidence=0.0,
-            resize_max=1000
+            min_confidence=min_confidence,
+            resize_max=resize_max
         )
         
         if not results['results']:
