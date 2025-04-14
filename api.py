@@ -64,13 +64,10 @@ def get_or_create_reader(config_params: dict) -> OCRReader:
     
     return reader_cache[cache_key]
 
-@app.get("/")
-async def root():
-    return {
-        "message": "Health Insurance Card OCR API",
-        "docs": "/docs",
-        "redoc": "/redoc"
-    }
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy", "message": "API is running"}   
+
 
 @app.post("/readtext")
 async def read_text(
